@@ -1,0 +1,312 @@
+---
+title: "The Mismeasure of Growth"
+output: 
+  html_document: 
+    keep_md: yes
+    self_contained: no
+---
+
+About six months ago, [Tom Pepinsky](https://twitter.com/TomPepinsky) wrote [a post](http://tompepinsky.com/2015/03/23/singapore-from-third-world-to-first/), on the occasion of Lee Kuan Yew's death, where he argued graphically that Lee Kuan Yew's claim to have taken Singapore "from Third World to First" was a bit overstated. (Yes, I'm posting about this six months later - but I have never claimed that this blog offers hot takes on the news!). Using Kristian Gledistch's [expanded GDP data](http://privatewww.essex.ac.uk/~ksg/exptradegdp.html), he noted that,in percentile terms, Singapore was already quite wealthy by the time it became independent, especially compared to its neighbours:
+
+```{r, echo = FALSE, cache=FALSE, warning=FALSE, message=FALSE}
+library(PoliticalDatasets)
+library(dplyr)
+library(ggplot2)
+
+data <- expanded_gdp 
+
+data <- data %>% group_by(year) %>% mutate(percentile_rank = percent_rank(rgdppc))
+
+data <- data %>% filter(grepl("Singapore|United States|United Kingdom|Great Britain|Indonesia|Myanmar|China|Malaysia",country_name))
+
+ggplot(data = data, aes(x = year, y = percentile_rank, color = country_name)) + geom_path() + theme_bw() + labs(y = "Real GDP per capita, percentile rank, Gleditsch", color = "Country") + theme(legend.position = "bottom") + guides(color=guide_legend(title.position="top", nrow= 2)) + geom_text(data = data %>%  group_by(country_name) %>% summarise(initial_rank = first(percentile_rank),initial_year = first(year)), aes(x= initial_year, y = initial_rank, label = country_name), color = "black", size = 2.5) + xlim(c(1945,2015))
+
+```
+
+By this measure, Singapore was as wealthy as the UK (per capita) by the mid-1970s, not because it had grown especially fast, but because it had started from a relatively high base. On this view, the most we could say is that Singapore escaped the "middle income trap," not so much the "third world." 
+
+As I recall, however, at the time there was a bit of pushback on Twitter and in the comments to the post about both the data source used (Gleditsch rather than the Penn World Table or the Maddison data) and the decision to look at the percentile rank of income rather than the actual per capita income. Indeed, the figure above looks very different if we use the [Penn World Table](http://www.rug.nl/research/ggdc/data/pwt/pwt-8.1)'s latest measure of "expenditure side real GDP, at chained PPPs" (recommended by the Penn World Table investigators for "comparison of living standards across countries and over time"):
+
+```{r, echo = FALSE, cache=FALSE, warning=FALSE, message=FALSE}
+data <- pwt8.1 %>% filter(!is.na(rgdpe)) 
+
+data <- data %>% group_by(year) %>% mutate(percentile_rank = percent_rank(rgdpe/pop))
+
+data <- data %>% filter(in_system)
+
+data <- data %>% filter(grepl("Singapore|United States|United Kingdom|Great Britain|Indonesia|Myanmar|China|Malaysia",country_name))
+
+ggplot(data = data, aes(x = year, y = percentile_rank, color = country_name)) + geom_path() + theme_bw() + labs(y = "Real GDP per capita, percentile rank, PWT8.1", color = "Country") + theme(legend.position = "bottom") + guides(color=guide_legend(title.position="top", nrow= 2)) + geom_text(data = data %>%  group_by(country_name) %>% summarise(initial_rank = first(percentile_rank),initial_year = first(year)), aes(x= initial_year, y = initial_rank, label = country_name), color = "black", size = 2.5) + xlim(c(1945,2015))
+
+```
+
+(There's no data for Myanmar in the PWT 8.1).
+
+Now Singapore's starting income rank is much closer to Malaysia's (they were, after all, part of the same country until 1965), solidly in the middle, and does not reach the UK's income rank until the 1990s, instead of the 1970s. The difference between the two graphs is even starker if, instead of percentile ranks, we simply look at the actual income per capita numbers in PWT8.1 vs the Gleditsch data:
+
+```{r, echo = FALSE, cache=FALSE, warning=FALSE, message=FALSE}
+library(scales)
+
+pwt <- pwt8.1 %>% 
+  filter(!is.na(rgdpe), in_system) %>% 
+  filter(grepl("Singapore|United States|United Kingdom|Great Britain|Indonesia|Myanmar|China|Malaysia",country_name)) %>% 
+  select(country_name, year, pop, rgdpe) %>% 
+  mutate(per_capita = rgdpe/pop) %>%
+  ungroup() %>%
+  select(-rgdpe,-pop, - pwt_country)
+
+pwt$src <- "PWT 8.1, Real GDP per capita, \nexpenditure side, chained PPPs, 2005 dollars"
+
+gleditsch <- expanded_gdp %>% 
+  filter(!is.na(rgdppc)) %>% 
+  filter(grepl("Singapore|United States|United Kingdom|Great Britain|Indonesia|Myanmar|China|Malaysia",country_name)) %>% 
+  select(country_name, year, rgdppc) %>% 
+  rename(per_capita = rgdppc) 
+  
+gleditsch$src <- "Gleditsch, real GDP per capita, \n2005 dollars"
+data <- rbind(pwt, gleditsch)
+rm(gleditsch)
+
+ggplot(data = data, aes(x = year, y = per_capita, color = country_name)) + geom_path() + theme_bw() + facet_wrap(~src) + labs(y = "Real GDP per capita", color = "Country") + theme(legend.position = "bottom") + guides(color=guide_legend(title.position="top", nrow= 2)) + scale_y_log10(label=dollar) + geom_text(data = data %>% group_by(country_name,src) %>% summarise(initial_income = per_capita[ year == 1965 ],initial_year = 1965), aes(x= initial_year, y = initial_income, label = dollar_format()(initial_income)), color = "black", size = 2.5) + scale_x_continuous(breaks = c(1940, 1950, 1960, 1970, 1980, 1990, 2000, 2010)) + geom_vline(xintercept = 1965, color = "lightgrey", linetype = 2)
+
+growth_rates <- data %>% filter(year >= 1965, year <= 1990)
+library(broom)
+growth_rates <- growth_rates %>% group_by(country_name,src) %>% do(tidy(lm(log(per_capita) ~ year, data = .), conf.int = TRUE)) %>% filter(term == "year")
+
+SingaporeGrowth <- round(growth_rates$estimate[ growth_rates$country_name == "Singapore"]*100, 1)
+rm(pwt, growth_rates)
+
+```
+
+Using the recommended PWT 8.1 measure, Singapore at independence in 1965 had a per capita income of around $3,000 per capita, only a bit higher than Malaysia's, and only one-sixth of US income; using the Gleditsch data, by contrast, Singapore starts out at nearly double the income level of Malaysia (more than $6000 compared with around $3,500), about a third of US income (and about half of UK income). It's a big head-start, and it does make Lee's achievement look a bit less impressive (an average growth rate for the period 1965-1990, when Lee was Prime Minister, of `r SingaporeGrowth[1]`% rather than `r SingaporeGrowth[2]`% per year for the PWT8.1 measure). At the time, I thought that the difference between the two estimates of Singaporean GDP was simply a matter of different data sources. But when you dig deeper, it turns out that the source of Gleditsch's numbers for Singapore was ... the Penn World Table (version 8.0)! 
+
+What is going on here? In this particular case, the discrepancy is due, first, to [adjustments in the 2005 PPPs used between versions 8.0 and 8.1 of the PWT](http://www.rug.nl/research/ggdc/data/pwt/v81/what_is_new_in_pwt_81.pdf) that increased the base price level in many countries and years, and hence lowered their measured GDP, and second, to the fact that the Gleditsch data reports, not the "expenditure side" measure of GDP (basically real GDP adjusted for changes in the terms of trade), but the measure for "output side real GDP at chained PPPs" (which is not adjusted for terms of trade). The latter measure, according to [the PWT's handy guide](http://www.rug.nl/research/ggdc/data/pwt/pwt-8.1), is the one that should be used "to compare relative productive capacity across countries and over time," rather than living standards (which may be affected by favourable terms of trade - e.g., unusually low import prices or unusually high export prices).[^Expenditure] The combined effect of these two differences makes Singapore's economic performance look less impressive on the Gleditsch measure (PWT 8.0) than on the PWT8.1's "expenditure side" measure (or even the PWT8.1's "output side" measure):
+
+```{r, echo = FALSE, cache=TRUE, warning=FALSE, message=FALSE}
+
+data <- economic.data %>% filter(in_system, country_name == "Singapore", grepl("chained",variable))
+
+ggplot(data = data) + geom_path(aes(x = year, y = per_capita, color = variable, linetype = primary_source)) + theme_bw() + labs(y = "Real GDP per capita, Singapore, \ndifferent measures", color = "Measure", linetype = "PWT Version") + theme(legend.position = "bottom") + guides(color=guide_legend(title.position="top", nrow= 2)) + scale_y_log10(label=dollar) + geom_text(data = data %>% group_by(variable) %>% summarise(initial_income = per_capita[ year == 1965 ],initial_year = 1965, measure = first(variable)), aes(x= 1965, y = initial_income, label = paste(dollar_format()(initial_income),": ",measure)), color = "black", size = 2.5, hjust = 0) + scale_x_continuous(breaks = c(1960, 1970, 1980, 1990, 2000, 2010)) + geom_vline(xintercept = 1965, color = "lightgrey", linetype = 2) 
+
+```
+
+Indeed, the estimated growth rates for the period of Lee's premiership of independent Singapore (1965-1990),[^Estimates] according to all the different datasets available (Penn World Table 8.0, Penn World Table 8.1, [World Development Indicators](http://data.worldbank.org/data-catalog/world-development-indicators), Gleditsch, [Maddison](http://www.ggdc.net/maddison/maddison-project/)) do vary a fair amount:
+
+```{r, echo = FALSE, cache=TRUE, warning=FALSE, message=FALSE}
+library(broom)
+
+data <- economic.data
+
+growth_rates <- data.frame()
+
+growth_rates <- data %>% filter(year <= 1990, year >= 1965, country_name == "Singapore") %>% group_by(variable) %>% do(tidy(lm(log(per_capita) ~ year, data = .), conf.int = TRUE)) %>% filter(term == "year")
+
+ggplot(data = growth_rates) + geom_pointrange(aes(x = reorder(variable,estimate), y = estimate, ymax = conf.high, ymin = conf.low)) + theme_bw() + labs(x = "Measure", y = "Estimated growth rate, \n1965-1990") + theme(legend.position = "bottom") + guides(color=guide_legend(title.position="top", nrow= 2)) + coord_flip() + scale_y_continuous(label = percent)
+
+```
+
+(I include a measure from PWT8.1 for "real consumption of households and government, current PPPs," which is also used to compare growth in living standards, [according to this PWT document](http://www.rug.nl/research/ggdc/data/pwt/v81/what_is_new_in_pwt_81.pdf). Error bars can be understood as a measure of volatility - larger error bars indicate more ups and downs in performance). To be sure, by whatever measure, Singapore under Lee Kuan Yew grew very fast compared to the rest of the world (certainly in the top 10% of all countries for the period 1965-1990, sometimes appearing as the top performer overall); but purely by accident, the Gleditsch data shows Lee in the worst possible light: 
+
+```{r, echo = FALSE, cache=TRUE, message=FALSE, warning=FALSE}
+library(broom)
+archigos <- archigos2014 %>% mutate(total_tenure = as.double(enddate-startdate,unit = "days")/365, start_year = year(startdate), end_year = year(enddate)) %>% filter(total_tenure > 8)
+
+archigos <- archigos %>% group_by(obsid, leader, GWn, start_year, end_year) %>% do(data.frame(year = .$start_year:.$end_year)) 
+
+data <- left_join(economic.data,archigos)
+
+data <- data %>% filter(!is.na(start_year), in_system)
+
+data <- data %>% group_by(obsid) %>% mutate(start_year = min(year), end_year = max(year)) %>% ungroup()
+
+rm(archigos)
+
+periods <- data %>% select(start_year, end_year) %>% distinct()
+
+growth_rates <- data.frame()
+
+for(period in 1:nrow(periods)) {
+  message(paste0("Working on ", period, " out of ", nrow(periods)))
+  start <- periods[ period, "start_year" ]$start_year
+  end <- periods[ period, "end_year" ]$end_year
+  d <- data %>% group_by(country_name,variable) %>% filter(min(year) <= start, max(year) >= end - 3)
+  if(nrow(d) > 0) {
+    d <- d %>% filter(year >= start, year <= end) %>% distinct(country_name, variable, year, per_capita) 
+    d <- d %>% do(tidy(lm(log(per_capita) ~ year, data = .), conf.int = TRUE)) %>% filter(term == "year") %>% mutate(start_year = start, end_year = end)
+    d <- d %>% group_by(variable) %>% mutate(percentile = percent_rank(estimate), rank = min_rank(estimate), total_countries = length(unique(country_name)))
+    growth_rates <- rbind(growth_rates, d)
+  }
+}
+
+growth_rates <- growth_rates %>% mutate(reverse_rank =  total_countries + 1 - rank)
+data <- left_join(data, growth_rates)
+rm(periods, period, start, end, d)
+
+```
+
+
+```{r, echo = FALSE, cache=TRUE, warning=FALSE, message=FALSE, results = "asis"}
+
+library(xtable)
+
+lee.performance <- data %>% filter(leader == "Lee Kuan Yew", !is.na(estimate)) %>% select(variable, estimate, rank, reverse_rank, percentile, total_countries) %>% distinct() 
+
+lee.performance <- lee.performance %>% mutate(print.rank = paste0(reverse_rank," out of ",total_countries))
+
+lee.performance <- lee.performance %>% select(variable, estimate, percentile, print.rank) %>% mutate(percentile = round(percentile*100,0), estimate = percent(round(estimate,4))) %>% rename(rank = print.rank) %>% arrange(desc(percentile), desc(estimate))
+
+print(xtable(lee.performance, digits = c(0,0,2,0,0)), align = "rlrrr",type = "html", comment = FALSE, include.rownames = FALSE, html.table.attributes="border=1 cellpadding='10' cellspacing = 3")
+```
+
+There are perfectly good reasons for this variation in estimates. Current PPP measures of GDP per capita should not, in general, be identical to chained PPP measures, since the PPP conversion factors will vary over time in the latter and not in the former; I assume that this divergence may be magnified when an economy is undergoing genuine structural transformation. Expenditure-side and output-side measures will also vary depending on whether a country is facing better or worse terms of trade, something that will apply especially to trade-dependent economies like Singapore's. 
+
+More generally, the Maddison project, the World Bank, and the Penn World Table project make different adjustments to the numbers produced by national statistical offices, based on different views about how to compare various prices across countries and different assumptions about the structure of particular economies. And though in the Singaporean case this is not really a problem, ultimately most estimates of the productive capacity of an economy, or the living standards of a country, depend on the reliability of national statistical agencies, whose capacity can vary greatly, and are subject to different constraints, including political manipulation. [Morten Jerven](http://mortenjerven.com/), for example, [argues that in some African countries, the numbers measuring GDP are basically guesstimates of limited value](http://afraf.oxfordjournals.org/content/109/434/77.abstract); Jerome Wallace [has written on the political incentives for manipulating GDP statistics in China](http://papers.ssrn.com/sol3/papers.cfm?abstract_id=1975160), especially at the subnational level. (The Chinese case is especially interesting. Though the main PWT data reports estimates of the Chinese economy based on official national accounts data, the PWT researchers also provide an [additional table](http://www.rug.nl/research/ggdc/data/pwt/v81/na_data.xlsx) reporting "adjusted" national accounts data based on the research of [Harry Wu](https://ideas.repec.org/a/wej/wldecn/330.html). The Maddison project reports the Wu-adjusted data instead, which provides generally lower estimates of Chinese economic performance than the official data). 
+
+How much does it matter, however, which measure we use to evaluate the economic performance of particular regimes and political leaders? Which leaders and regimes have the most "disputed" economic performance, depending on the measure used? Using the [Beta version](http://abandonedfootnotes.blogspot.com/2015/01/political-instability-at-glance.html) of the [Archigos](http://www.rochester.edu/college/faculty/hgoemans/data.htm) dataset, I estimated the growth rates of all available measures of GDP per capita for all political leaders who were in office by at least 8 years up until 2014 in the post-1945 period. Eight years may not seem long, but in fact [only about 15% of all leaders](http://abandonedfootnotes.blogspot.com/2012/02/half-life-of-leaders-and-half-life-of.html) survive that long in power, so this is a pretty select group of "political survivors." Moreover, eight years is two American presidential terms (so the data includes some American leaders), and seems long enough for leaders to actually make a difference, or at least successfully ride out a crisis or two. Among this select group of about 350 politically over-achieving group of leaders (some drop out for various reasons, including lack of sufficient economic data), here is the *creme de la creme*, the economic "stars" who presided over growth rates greater than 90% of all other countries with data for the period in which they were in office (averaging all growth rate estimates from the different datasets):
+
+```{r, echo = FALSE, cache=TRUE, warning=FALSE, message=FALSE, fig.height=20}
+leader.data <- data %>% select(obsid, leader, country_name, GWn, start_year, end_year, variable, estimate, conf.high, conf.low, percentile, rank, reverse_rank, total_countries, primary_source, origin) %>% distinct() %>% filter(!is.na(estimate)) %>% arrange(obsid,leader,country_name,variable) %>% filter(end_year - start_year >= 8, start_year >= 1945)
+
+leader.data <- leader.data %>% group_by(obsid) %>% mutate(max_rank = round(max(percentile)*100,0), min_rank = round(min(percentile)*100,0), avg_rank = mean(percentile), sd_rank = sd(percentile), avg_estimate = mean(estimate), sd_estimate = sd(estimate), num_available_measures = n(), max_countries = max(total_countries), min_countries = min(total_countries))  
+
+leader.data <- leader.data %>% ungroup() %>% mutate(sd_percentile = percent_rank(sd_estimate), estimate_percentile = percent_rank(avg_estimate))
+
+leader.data <- leader.data %>% group_by(obsid) %>% mutate(avg_estimate_percentile = mean(estimate_percentile), avg_sd_percentile = mean(sd_percentile))
+
+leader.data <- leader.data %>% mutate(leader.info = paste0(leader,", ",country_name,",\npercentiles ",max_rank," - ",min_rank," from ",start_year," to ",end_year, ",  \nin comparison w. ", min_countries, " - ",max_countries, " countries"))
+
+ggplot(data = leader.data %>% filter(avg_estimate_percentile >= 0.90), aes(x = reorder(leader.info,estimate, FUN = median), y = estimate)) + geom_boxplot(varwidth = TRUE) + geom_point(aes(color = primary_source, size = total_countries, alpha = total_countries), position="jitter")  + coord_flip() + theme_bw() + theme(legend.position = "bottom") + guides(color=guide_legend(title.position="top", nrow= 2), alpha=guide_legend(title.position="top", nrow= 2)) + coord_cartesian(ylim = c(0,0.25)) + coord_flip() + scale_y_continuous(breaks = c(0, 0.05, 0.1, 0.15, 0.2, 0.25), label = percent) + labs(x = "Leader", y="Estimated growth rate, various measures", alpha = "Number of countries compared in period", size = "Number of countries compared in period", color = "Source for estimate") + scale_alpha(range = c(0.2,0.5)) + scale_size(range = c(1.5,6)) + geom_hline(yintercept = 0,color="red") 
+
+```
+
+The variation at the top is enormous, depending on what measure we use. For example, Obasanjo is ranked as the top performing leader from 1999-2007 on many of the PWT8.1 measures, but only in the 84th percentile according to Maddison, and the estimated growth rates for the period range all the way from 6.7% per year (Maddison) to 28% per year (PWT 8.1, growth in consumption). If we believe the PWT, Obasanjo presided over a seven-fold increase in Nigeria's living standards; if we believe Maddison (or the WDI), Nigerian living standards merely increased by about 1.7 times during his time in office. The economic performance of other leaders varies even more dramatically: if we believe version 8.1 of the PWT, the real consumtion of households and government in Equatorial Guinea under [Teodoro Obiang Nguema Mbasogo](https://en.wikipedia.org/wiki/Teodoro_Obiang_Nguema_Mbasogo) increased about 6 times from 1979-2014; if we believe the GDP per capita measures on the expenditure side in both versions of the PWT, living standards increased about 45 times; and if we believe the output-side measure from the PWT version 8.0, the productive capacity of the economy of Equatorial Guinea increased about 125 times, more than under any other leader in this dataset. A real benefactor! (Right). By contrast, almost all measures agree that Singapore's productive capacity and economic output increased by around fivefold during Lee's time in office (a bit more, a bit less depending on the particular measure used). Lee is unusual among top performers insofar as there is in fact reasonable agreement across different measures regarding the magnitude of his economic achievement.  
+
+The same variability is also evident among the very worst performers:
+
+```{r, echo = FALSE, cache=TRUE, warning=FALSE, message=FALSE, fig.height=20}
+
+ggplot(data = leader.data %>% filter(avg_estimate_percentile <= 0.10), aes(x = reorder(leader.info,estimate, FUN = median), y = estimate)) + geom_boxplot(varwidth=TRUE) + geom_point(aes(color = primary_source, size = total_countries, alpha = total_countries), position="jitter")  + coord_flip() + theme_bw() + theme(legend.position = "bottom") + guides(color=guide_legend(title.position="top", nrow= 2), alpha=guide_legend(title.position="top", nrow= 1)) + coord_cartesian(ylim = c(0,0.25)) + coord_flip() + scale_y_continuous(label = percent) + labs(x = "Leader", y="Estimated growth rate, various measures", alpha = "Number of countries compared in period", size = "Number of countries compared in period", color = "Source for estimate") + scale_alpha(range = c(0.2,0.5)) + scale_size(range = c(1.5,6)) + geom_hline(yintercept = 0,color="red")
+```
+
+Depending on which measure you use, Nigeria's economic living standards under the military government of Babangida (before Obasanjo) either contracted at a rate of around 17% per year (PWT8.1, expenditure-side measures), or merely remained stagnant (Maddison, World Development indicators). Jabir as-Sabah of Kuwait presided over one of the most severe depressions in modern history (-15% per year for 12 years, output-side measure in PWT 8.0) or merely over an extended recession caused by falling oil prices (-1.3% per year, real consumption measure from PWT 8.1). In the case of Mali under Keita, or Niger under Mamadou, the different datasets do not even agree as to whether the economy was growing or shrinking during their time in power, though most measures point to decline. 
+
+No one particular dataset always gives lower or higher growth estimates. They seem to disagree the most for leaders that presided over states whose statistical capacity is at best dubious, or who were undergoing some severe trade shock (wild swings in the price of oil, or severe conflict or civil war), but it's hard to tell without more detailed analysis. (Estimates of growth rates typically agree across measures in the "advanced" economies). Here, for example, are the leaders whose growth estimates diverge the most when measured in more than two different ways, as well as the sources of the high and low estimates:
+
+```{r, echo = FALSE, cache=TRUE, warning=FALSE, message=FALSE, results = 'asis'}
+library(xtable)
+
+leader.data <- leader.data %>% mutate(estimate_type = ifelse(as.character(variable) == "Gleditsch", as.character(origin), as.character(variable)))
+leader.differences <- leader.data %>% group_by(leader,start_year, end_year,country_name) %>% summarise(min_estimate =min(estimate), max_estimate = max(estimate), source_min = paste(estimate_type[ estimate == min(estimate)], collapse = ", "), source_max = paste(estimate_type[ estimate == max(estimate)], collapse = ", "), num_measures = n()) %>% mutate(difference = max_estimate - min_estimate) %>% ungroup() %>% arrange(desc(difference))
+
+leader.differences <- leader.differences %>% mutate(min_estimate = percent(round(min_estimate,4)), max_estimate = percent(round(max_estimate,4)), difference = round(difference*100,2), leader = paste0(leader,", ",country_name,", ", start_year, "-", end_year)) %>% select(leader, min_estimate, max_estimate, difference, source_min, source_max, num_measures)
+
+leader.differences <- leader.differences %>% filter(num_measures > 2, percent_rank(difference) > 0.9) 
+
+names(leader.differences) <- c("Leader"," Lowest "," Highest ", " Difference ", " Source low ", " Source high "," Measures ")
+print(xtable(leader.differences, digits = c(0,0,0,0,2,0,0,0)),align = "lrcccrrc", type = "html", comment = FALSE, include.rownames = FALSE, html.table.attributes="border=1 cellpadding='10' cellspacing = 3")
+
+```
+
+Some of these numbers have a look of fantasy about them. It is not, I think, possible to say what the GDP per capita of Equatorial Guinea under [Macias Nguema](https://en.wikipedia.org/wiki/Francisco_Mac%C3%ADas_Nguema), much less to estimate its growth rate (no. 32 in the table above), since [government bureaucracies pretty much ceased to operate](http://www.jstor.org/stable/160571) during his time in power, [cocoa production collapsed, perhaps a third of the population fled or was killed](http://afraf.oxfordjournals.org/content/103/413/527.full.pdf+html), and the country was more or less off-limits to foreigners. (Perhaps "per capita" GDP increased because the population was declining at the time, despite the apparently complete economic disaster, but it's hard to say: under these circumstances, all growth numbers must be suspect). Even when the numbers are not utterly fantastic, however, the divergences in growth numbers sometimes seem inexplicable without a deep understanding of how the underlying GDP numbers were generated. Should we think that the average growth in living standards under Hu Jintao was around 2.9% per year, or closer to 10% per year? Or was it more like 7%, as the latest expenditure-side measure of GDP per capita from the PWT 8.1 says? Or take a look at Nigeria, for example, which has both the worst (Babangida) and the best (Obasanjo) performers in terms of growth, and also the most widely divergent estimates of such growth:[^DeepHistory]
+
+```{r, echo = FALSE, cache=FALSE, warning=FALSE, message=FALSE, fig.height=45}
+
+deep_history("Nigeria", economic_data = TRUE, polity = FALSE, uds_data = FALSE)
+
+```
+
+Datasets do not agree on how high was Nigeria's GDP at the beginning of Babangida's time in power, in the mid-1980s, or how far it fell by the end of Abacha's reign; estimates differ by a factor of 10 in some cases. Perhaps country specialists can explain some of these swings (adjustments by the statistical office to the national accounts? Different adjustments by dataset providers in response to changing prices of oil?), but the average user seems unlikely to know. Perhaps it's impossible to tell exactly: based on available data, all we can tell is that average living standards (probably) declined under Babangida (a military ruler), and (probably) increased under Obasanjo (an elected ruler of a hybrid regime), at least for a hypothetical "average person," but it's pointless to try to figure out by how much.
+
+The country's political regime does seem to matter a bit for whether or not a country's growth estimates agree. Using [Geddes, Wright, and Frantz's dataset of authoritarian regimes](http://dictators.la.psu.edu/), we can calculate the average growth rates and growth percentiles of all regimes in place for at least three years (so there's enough data to calculate some sensible growth rates) since 1950. (As above, the growth percentiles are relative to the dates of the regime; so, for example, a regime that grew at 5% per year from 1950-1980 may be in the 95th percentile for that period, while a regime that grew at 7% per year in the 1970-1980 period may be only in the 90th percentile for that period. This is a rough way of adjusting for common factors operating on the world economy on all regimes in a particular period of time; instead of looking at the growth rate of a regime by itself, we can look at how that growth rate *compares* to the growth rate of all other countries during the regime's lifetime). There are 239 such regimes. Here's what their growth percentiles look like when plotted against their basic regime type (colored dots represent means of growth rates or growth percentiles from one dataset and one measure): 
+
+```{r, echo = FALSE, cache=TRUE, warning=FALSE, message=FALSE}
+library(broom)
+
+regime.data <- left_join(economic.data, all_gwf %>% filter(year > 1950))
+
+regime.data <- regime.data %>% filter(!is.na(gwf_casename), in_system)
+
+regime.data <- regime.data %>% group_by(gwf_casename) %>% mutate(start_year = min(year), end_year = max(year)) %>% ungroup()
+
+periods <- regime.data %>% select(start_year, end_year) %>% distinct()
+
+periods <- filter(periods, end_year - start_year > 1)
+
+regime_growth_rates <- data.frame()
+
+for(period in 1:nrow(periods)) {
+  message(paste0("Working on ", period, " out of ", nrow(periods)))
+  start <- periods[ period, "start_year" ]$start_year
+  end <- periods[ period, "end_year" ]$end_year
+  d <- regime.data %>% group_by(country_name,variable) %>% filter(min(year) <= start, max(year) >= end)
+  if(nrow(d) > 0) {
+    d <- d %>% filter(year >= start, year <= end) %>% distinct(country_name, variable, year, per_capita) 
+    d <- d %>% do(tidy(lm(log(per_capita) ~ year, data = .), conf.int = TRUE)) %>% filter(term == "year") %>% mutate(start_year = start, end_year = end)
+    d <- d %>% group_by(variable) %>% mutate(percentile = percent_rank(estimate), rank = min_rank(estimate), total_countries = length(unique(country_name)))
+    regime_growth_rates <- rbind(regime_growth_rates, d)
+  }
+}
+
+
+regime_growth_rates <- regime_growth_rates %>% mutate(reverse_rank =  total_countries + 1 - rank)
+regime.data <- left_join(regime.data, regime_growth_rates)
+regime.data <- regime.data %>% filter(!is.na(percentile))
+regime.data <- regime.data %>% mutate(rough_regime = ifelse(is.na(gwf_nonautocracy), "Autocracy", ifelse(as.character(gwf_nonautocracy) == "democracy","Democracy","No authority\nNot independent\nOther")))
+rm(periods, period, start, end, d, regime_growth_rates)
+
+```
+
+```{r, echo = FALSE, cache=TRUE, warning=FALSE, message=FALSE}
+summary.data <- regime.data %>% distinct(country_name, GWn, in_system, variable, primary_source, origin, estimate, percentile, gwf_regimetype, rough_regime) %>% group_by(variable, rough_regime) %>% mutate(num_comparisons = n())
+
+ggplot(data = summary.data, aes(x = reorder(rough_regime,estimate, FUN=median), y = estimate)) + geom_boxplot(varwidth = TRUE, notch = TRUE) + theme_bw() + coord_flip() + labs(x = "Regime type", y="Avg. growth rate for life of the regime (1950-2010)", alpha = "Number of avg. growth rates available", color = "Primary source") + stat_summary(fun.data = mean_cl_boot, aes(color = primary_source, group=variable, alpha = num_comparisons), position = "jitter") + scale_alpha(range = c(0.3,1)) + theme(legend.position = "bottom") + guides(color=guide_legend(title.position="top", nrow= 2), alpha=guide_legend(title.position="top", nrow= 1)) + scale_y_continuous(label=percent, limits = c(-0.12,0.12))
+
+ggplot(data = summary.data, aes(x = reorder(rough_regime,percentile, FUN=median), y = percentile)) + geom_boxplot(varwidth = TRUE, notch = TRUE) + theme_bw() + coord_flip() + labs(x = "Regime type", y="Growth percentile for life of the regime (1950-2010)", alpha = "Number of growth percentiles available", color = "Primary source") + stat_summary(fun.data = mean_cl_boot, aes(color = primary_source, group=variable, alpha = num_comparisons), position = "jitter") + scale_alpha(range = c(0.3,1)) + theme(legend.position = "bottom") + guides(color=guide_legend(title.position="top", nrow= 2), alpha=guide_legend(title.position="top", nrow= 1))
+
+```
+
+The graph indicates three things. First, for the periods in which there is data, democracies in the sample seem to have grown faster than "autocracies," when averaging over all measures of growth, as [some of the best research](http://muse.jhu.edu/journals/world_politics/v057/57.3gerring.html) [on this topic](http://www.jstor.org/stable/25193797) suggests; their median "growth percentile" seems to have been higher than that of non-democracies for the periods in which they were in existence. But depending on which measure we use, we could get the opposite result: on the PPP WDI measure, autocracies grow faster than democracies. (A situation ripe for [p-hacking](http://fivethirtyeight.com/features/science-isnt-broken/)!). Second, economic performance in democracies seems to have been more stable than economic performance in non-democracies, as people like [Dani Rodrik have shown in more detail elsewhere](http://dx.doi.org/10.1007/BF02699764), though economic performance varies widely across both democracies and non-democracies, and the extent of the variation depends in part on which measure of economic growth we choose to focus on. But third, and most importantly for our purposes here, estimates of economic growth seem to vary more across datasets in non-democracies than in democracies. Especially for countries going through periods of "no authority" (civil wars, warlord regimes, etc.), estimates of growth are basically all over the place, and their means have huge error bars, as we should perhaps expect when statistical offices cease to operate and economic activity goes underground. 
+
+We can take the same look at the same picture at a finer level of detail:
+
+```{r, echo = FALSE, cache=TRUE, warning=FALSE, message=FALSE}
+summary.data <- regime.data %>% distinct(country_name, GWn, in_system, variable, primary_source, origin, estimate, percentile, gwf_regimetype, rough_regime) %>% group_by(variable, gwf_full_regimetype) %>% mutate(num_comparisons = n())
+
+
+ggplot(data = summary.data, aes(x = reorder(gwf_full_regimetype,estimate, FUN=median), y = estimate)) + geom_boxplot(varwidth = TRUE, notch = TRUE) + theme_bw() + coord_flip() + labs(x = "Regime type", y="Avg. growth rate for life of the regime (1950-2010)", alpha = "Number of avg. growth rates available", color = "Primary source") + stat_summary(fun.data = mean_cl_boot, aes(color = primary_source, group=variable, alpha = num_comparisons), position = "jitter") + scale_alpha(range = c(0.3,1)) + theme(legend.position = "bottom") + guides(color=guide_legend(title.position="top", nrow= 2), alpha=guide_legend(title.position="top", nrow= 1)) + scale_y_continuous(label=percent)
+
+ggplot(data = summary.data, aes(x = reorder(gwf_full_regimetype,percentile, FUN=median), y = percentile)) + geom_boxplot(varwidth = TRUE, notch = TRUE) + theme_bw() + coord_flip() + labs(x = "Regime type", y="Growth percentile for life of the regime (1950-2010)", alpha = "Number of growth percentiles available", color = "Primary source") + stat_summary(fun.data = mean_cl_boot, aes(color = primary_source, group=variable, alpha = num_comparisons), position = "jitter") + scale_alpha(range = c(0.3,1)) + theme(legend.position = "bottom") + guides(color=guide_legend(title.position="top", nrow= 2), alpha=guide_legend(title.position="top", nrow= 1))
+
+```
+
+In some regimes (e.g., "warlord" regimes), basically no conclusions can be drawn about the correlation between regime type and "average" growth rates: the error bars around the mean are too huge, and estimates from different datasets are basically all over the place. More or less the same thing is true for the (mostly Middle Eastern) monarchies, and many party or party/military regimes. In comparison, estimates for growth rates in democracies across all datasets seem to agree pretty closely on average. Indeed, the standard deviation of the different estimates of the log of the *level* of income, per year, within each regime, is higher in non-democracies than in democracies; in other words, estimates of "how wealthy the country is" differ more in non-democracies than in democracies, and non-democracies show more and larger outliers: 
+
+```{r, echo = FALSE, cache=TRUE, warning=FALSE, message=FALSE}
+regime.data <- regime.data %>% group_by(gwf_casename, year) %>% mutate(sd_per_regime = sd(log(per_capita), na.rm=TRUE))
+  
+ggplot(data = regime.data, aes(x = reorder(rough_regime,sd_per_regime,FUN=median))) + geom_boxplot(aes(y=sd_per_regime), varwidth=TRUE, notch=TRUE) + theme_bw() + labs(x = "Regime type", y = "Standard deviation of the estimated log(income level), \nper year and regime, all measures")  + theme(legend.position = "bottom") + guides(color=guide_legend(title.position="top", nrow= 2), alpha=guide_legend(title.position="top", nrow= 1)) + coord_flip()
+
+ggplot(data = regime.data, aes(x = reorder(gwf_full_regimetype,sd_per_regime,FUN=median, na.rm=TRUE))) + geom_boxplot(aes(y=sd_per_regime), varwidth=TRUE, notch=TRUE) + theme_bw() + labs(x = "Regime type", y = "Standard deviation of the estimated log(income level), \nper year and regime, all measures of income")  + theme(legend.position = "bottom") + guides(color=guide_legend(title.position="top", nrow= 2), alpha=guide_legend(title.position="top", nrow= 1)) + coord_flip()
+
+```
+
+Moreover, the divergence in estimates is not just due to the poverty of most authoritarian countries; non-democracies have more diverging estimates of income at all *levels* of income. Though poorer democracies and hybrid regimes do tend to have more variable estimates of their level of income than richer democracies and hybrid regimes, as we might expect (perhaps poorer countries have more difficulty gathering reliable data), the opposite appears to be true for non-democratic regimes; estimates of their actual level of income do not converge very much as they become richer:
+
+```{r, echo = FALSE, cache=TRUE, warning=FALSE, message=FALSE}
+uds.econ <- left_join(uds, economic.data)
+uds.econ <- uds.econ %>% filter(!is.na(per_capita)) %>% group_by(country_name,year) %>% mutate(sd_per_regime = sd(log(per_capita), na.rm=TRUE)) %>% ungroup() %>% mutate(regime_type = cut(mean, breaks = 3, labels = c("Non-democratic","Hybrid","Democratic")))
+
+ggplot(data = uds.econ, aes(x = per_capita)) + geom_point(aes(y=sd_per_regime, color = mean)) + geom_smooth(aes(y=sd_per_regime, group = regime_type, linetype = regime_type), method="lm")   + theme_bw() + labs(x = "Income per capita", y = "Standard deviation of the estimated log(income level), \nper year and country, all measures of income", color = "Unified democracy score", linetype = "Approximate regime type")  + theme(legend.position = "bottom") + guides(color=guide_legend(title.position="top", nrow= 1), linetype=guide_legend(title.position="top", nrow= 1)) + scale_x_log10(label=dollar) + scale_color_gradient2()
+
+
+```
+
+Moral of the story: it's difficult to measure incomes. It's even harder to construct estimates of income that are comparable across widely different economies and societies. But it's hardest to do that for regimes that can lie with greater impunity. 
+
+All code for this post is available here.
+
+[^Expenditure]: The choice to use "output side" (rather than Expenditure side) measures of GDP makes good sense for the Gleditsch data, which is designed for use in [international relations research](http://jcr.sagepub.com/content/46/5/712.short) where measuring the productive capacity of an economy is more important than measuring living standards.
+
+[^Estimates]: The estimated growth rates are the coefficient of the simple linear model log(per capita) ~ year. Error bars can be interpreted as a measure of volatility; large errors means the measure varies a lot in that period. 
+
+[^DeepHistory]: See my post on [histories of instability](http://abandonedfootnotes.blogspot.com/2015/01/political-instability-at-glance.html) for a discussion of how to read these figures. 
